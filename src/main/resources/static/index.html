@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Processor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2/lib/stomp.min.js"></script>
+    <style>
+       * {
+           margin: 0;
+           padding: 0;
+           box-sizing: border-box;
+       }
+
+       body {
+           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+           min-height: 100vh;
+           padding: 20px;
+       }
+
+       .container {
+           max-width: 1400px;
+           margin: 0 auto;
+       }
+
+       .header {
+           background: white;
+           padding: 20px;
+           border-radius: 10px;
+           margin-bottom: 20px;
+           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+       }
+
+       h1 {
+           color: #333;
+           margin-bottom: 10px;
+       }
+
+       .status-indicator {
+           display: inline-block;
+           width: 12px;
+           height: 12px;
+           border-radius: 50%;
+           margin-right: 8px;
+       }
+
+       .status-connected {
+           background: #10b981;
+       }
+
+       .status-disconnected {
+           background: #ef4444;
+       }
+
+       .dashboard-grid {
+           display: grid;
+           grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+           gap: 20px;
+           margin-bottom: 20px;
+       }
+
+       .stat-card {
+           background: white;
+           padding: 25px;
+           border-radius: 10px;
+           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+           transition: transform 0.2s;
+       }
+
+       .stat-card:hover {
+           transform: translateY(-5px);
+       }
+
+       .stat-card.pending {
+           border-left: 4px solid #f59e0b;
+       }
+
+       .stat-card.running {
+           border-left: 4px solid #3b82f6;
+       }
+
+       .stat-card.completed {
+           border-left: 4px solid #10b981;
+       }
+
+       .stat-card.failed {
+           border-left: 4px solid #ef4444;
+       }
+
+       .stat-card.dlq {
+           border-left: 4px solid #8b5cf6;
+       }
+
+       .stat-label {
+           font-size: 14px;
+           color: #6b7280;
+           text-transform: uppercase;
+           letter-spacing: 0.5px;
+           margin-bottom: 8px;
+       }
+
+       .stat-value {
+           font-size: 32px;
+           font-weight: bold;
+           color: #1f2937;
+       }
+
+       .job-form {
+           background: white;
+           padding: 25px;
+           border-radius: 10px;
+           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+           margin-bottom: 20px;
+       }
+
+       .form-group {
+           margin-bottom: 15px;
+       }
+
+       label {
+           display: block;
+           margin-bottom: 5px;
+           color: #374151;
+           font-weight: 500;
+       }
+
+       input, textarea {
+           width: 100%;
+           padding: 10px;
+           border: 1px solid #d1d5db;
+           border-radius: 5px;
+           font-size: 14px;
+       }
+
+       textarea {
+           resize: vertical;
+           min-height: 100px;
+       }
+
+       button {
+           background: #667eea;
+           color: white;
+           padding: 12px 24px;
+           border: none;
+           border-radius: 5px;
+           cursor: pointer;
+           font-size: 16px;
+           font-weight: 500;
+           transition: background 0.2s;
+       }
+
+       button:hover {
+           background: #5568d3;
+       }
+
+       button:disabled {
+           background: #9ca3af;
+           cursor: not-allowed;
+       }
+
+       .jobs-section {
+           background: white;
+           padding: 25px;
+           border-radius: 10px;
+           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+       }
+
+       .jobs-tabs {
+           display: flex;
+           gap: 10px;
+           margin-bottom: 20px;
+           border-bottom: 2px solid #e5e7eb;
+       }
+
+       .tab {
+           padding: 10px 20px;
+           cursor: pointer;
+           border: none;
+           background: none;
+           color: #6b7280;
+           font-weight: 500;
+           transition: color 0.2s;
+       }
+
+       .tab.active {
+           color: #667eea;
+           border-bottom: 2px solid #667eea;
+       }
+
+       .jobs-list {
+           max-height: 400px;
+           overflow-y: auto;
+       }
+
+       .job-item {
+           padding: 15px;
+           border: 1px solid #e5e7eb;
+           border-radius: 5px;
+           margin-bottom: 10px;
+           background: #f9fafb;
+       }
+
+       .job-header {
+           display: flex;
+           justify-content: space-between;
+           align-items: center;
+           margin-bottom: 10px;
+       }
+
+       .job-id {
+           font-family: monospace;
+           font-size: 12px;
+           color: #6b7280;
+       }
+
+       .job-status {
+           padding: 4px 12px;
+           border-radius: 12px;
+           font-size: 12px;
+           font-weight: 500;
+           text-transform: uppercase;
+       }
+
+       .job-status.pending {
+           background: #fef3c7;
+           color: #92400e;
+       }
+
+       .job-status.running {
+           background: #dbeafe;
+           color: #1e40af;
+       }
+
+       .job-status.completed {
+           background: #d1fae5;
+           color: #065f46;
+       }
+
+       .job-status.failed {
+           background: #fee2e2;
+           color: #991b1b;
+       }
+
+       .job-status.dlq {
+           background: #ede9fe;
+           color: #5b21b6;
+       }
+
+       .job-details {
+           font-size: 14px;
+           color: #4b5563;
+       }
+
+       .error-message {
+           color: #ef4444;
+           font-size: 12px;
+           margin-top: 5px;
+       }
+   </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Job Processor Dashboard</h1>
+        <div>
+            <span class="status-indicator" id="connectionStatus"></span>
+            <span id="connectionText">Connecting...</span>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <div class="stat-card pending">
+            <div class="stat-label">Pending Jobs</div>
+            <div class="stat-value" id="pendingJobs">0</div>
+        </div>
+        <div class="stat-card running">
+            <div class="stat-label">Running Jobs</div>
+            <div class="stat-value" id="runningJobs">0</div>
+        </div>
+        <div class="stat-card completed">
+            <div class="stat-label">Completed Jobs</div>
+            <div class="stat-value" id="completedJobs">0</div>
+        </div>
+        <div class="stat-card failed">
+            <div class="stat-label">Failed Jobs</div>
+            <div class="stat-value" id="failedJobs">0</div>
+        </div>
+        <div class="stat-card dlq">
+            <div class="stat-label">DLQ Jobs</div>
+            <div class="stat-value" id="dlqJobs">0</div>
+        </div>
+    </div>
+
+    <div class="job-form">
+        <h2 style="margin-bottom: 20px; color: #1f2937;">Submit New Job</h2>
+        <form id="jobForm">
+            <div class="form-group">
+                <label for="payload">Job Payload (JSON)</label>
+                <textarea id="payload" name="payload" required placeholder='{"task": "example", "data": "..."}'></textarea>
+            </div>
+            <div class="form-group">
+                <label for="idempotencyKey">Idempotency Key (Optional)</label>
+                <input type="text" id="idempotencyKey" name="idempotencyKey" placeholder="unique-key-123">
+            </div>
+            <div class="form-group">
+                <label for="tenantId">Tenant ID</label>
+                <input type="text" id="tenantId" name="tenantId" value="default-tenant" placeholder="default-tenant">
+            </div>
+            <button type="submit">Submit Job</button>
+        </form>
+    </div>
+
+    <div class="jobs-section">
+        <h2 style="margin-bottom: 20px; color: #1f2937;">Jobs</h2>
+        <div class="jobs-tabs">
+            <button class="tab active" onclick="showTab('all')">All</button>
+            <button class="tab" onclick="showTab('pending')">Pending</button>
+            <button class="tab" onclick="showTab('running')">Running</button>
+            <button class="tab" onclick="showTab('completed')">Completed</button>
+            <button class="tab" onclick="showTab('failed')">Failed</button>
+            <button class="tab" onclick="showTab('dlq')">DLQ</button>
+        </div>
+        <div class="jobs-list" id="jobsList"></div>
+    </div>
+</div>
+
+<script>
+       let stompClient = null;
+       let currentTab = 'all';
+       let allJobs = {};
+
+       function connect() {
+           const socket = new SockJS('/ws');
+           stompClient = Stomp.over(socket);
+           stompClient.connect({}, function(frame) {
+               updateConnectionStatus(true);
+               console.log('Connected: ' + frame);
+
+               stompClient.subscribe('/topic/stats', function(stats) {
+                   const data = JSON.parse(stats.body);
+                   updateStats(data);
+               });
+
+               loadJobs();
+           }, function(error) {
+               updateConnectionStatus(false);
+               console.error('Connection error: ' + error);
+               setTimeout(connect, 5000);
+           });
+       }
+
+       function updateConnectionStatus(connected) {
+           const indicator = document.getElementById('connectionStatus');
+           const text = document.getElementById('connectionText');
+           if (connected) {
+               indicator.className = 'status-indicator status-connected';
+               text.textContent = 'Connected';
+           } else {
+               indicator.className = 'status-indicator status-disconnected';
+               text.textContent = 'Disconnected';
+           }
+       }
+
+       function updateStats(stats) {
+           document.getElementById('pendingJobs').textContent = stats.pendingJobs;
+           document.getElementById('runningJobs').textContent = stats.runningJobs;
+           document.getElementById('completedJobs').textContent = stats.completedJobs;
+           document.getElementById('failedJobs').textContent = stats.failedJobs;
+           document.getElementById('dlqJobs').textContent = stats.dlqJobs;
+       }
+
+       async function loadJobs() {
+           try {
+               const response = await fetch('/api/dashboard/jobs');
+               allJobs = await response.json();
+               renderJobs();
+           } catch (error) {
+               console.error('Error loading jobs:', error);
+           }
+       }
+
+       function renderJobs() {
+           const jobsList = document.getElementById('jobsList');
+           jobsList.innerHTML = '';
+
+           let jobsToShow = [];
+           if (currentTab === 'all') {
+               jobsToShow = [
+                   ...allJobs.pending || [],
+                   ...allJobs.running || [],
+                   ...allJobs.completed || [],
+                   ...allJobs.failed || [],
+                   ...allJobs.dlq || []
+               ];
+           } else {
+               jobsToShow = allJobs[currentTab] || [];
+           }
+
+           if (jobsToShow.length === 0) {
+               jobsList.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 20px;">No jobs found</p>';
+               return;
+           }
+
+           jobsToShow.forEach(job => {
+               const jobItem = document.createElement('div');
+               jobItem.className = 'job-item';
+               jobItem.innerHTML = `
+                   <div class="job-header">
+                       <span class="job-id">${job.id}</span>
+                       <span class="job-status ${job.status.toLowerCase()}">${job.status}</span>
+                   </div>
+                   <div class="job-details">
+                       <div><strong>Tenant:</strong> ${job.tenantId}</div>
+                       <div><strong>Payload:</strong> ${job.payload || 'N/A'}</div>
+                       ${job.retryCount !== undefined ? `<div><strong>Retries:</strong> ${job.retryCount}/${job.maxRetries}</div>` : ''}
+                       ${job.errorMessage ? `<div class="error-message"><strong>Error:</strong> ${job.errorMessage}</div>` : ''}
+                       ${job.createdAt ? `<div><strong>Created:</strong> ${new Date(job.createdAt).toLocaleString()}</div>` : ''}
+                   </div>
+               `;
+               jobsList.appendChild(jobItem);
+           });
+       }
+
+       function showTab(tab) {
+           currentTab = tab;
+           document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+           event.target.classList.add('active');
+           renderJobs();
+       }
+
+       document.getElementById('jobForm').addEventListener('submit', async function(e) {
+           e.preventDefault();
+           const formData = new FormData(e.target);
+           const payload = formData.get('payload');
+           const idempotencyKey = formData.get('idempotencyKey');
+           const tenantId = formData.get('tenantId');
+
+           const jobRequest = {
+               payload: payload,
+               idempotencyKey: idempotencyKey || null
+           };
+
+           try {
+               const response = await fetch('/api/jobs', {
+                   method: 'POST',
+                   headers: {
+                       'Content-Type': 'application/json',
+                       'X-Tenant-Id': tenantId
+                   },
+                   body: JSON.stringify(jobRequest)
+               });
+
+               if (response.ok) {
+                   const job = await response.json();
+                   alert(`Job submitted successfully! ID: ${job.id}`);
+                   e.target.reset();
+                   setTimeout(loadJobs, 1000);
+               } else {
+                   const error = await response.text();
+                   alert(`Error: ${error}`);
+               }
+           } catch (error) {
+               alert(`Error submitting job: ${error.message}`);
+           }
+       });
+
+       // Connect on page load
+       connect();
+
+       // Refresh jobs every 5 seconds
+       setInterval(loadJobs, 5000);
+   </script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: job-processor
+  datasource:
+    url: jdbc:h2:file:./data/jobprocessor;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+server:
+  port: 8080
+
+job-processor:
+  worker:
+    poll-interval-ms: 1000
+    lease-duration-seconds: 30
+    max-retries: 3
+  rate-limit:
+    max-concurrent-jobs-per-tenant: 5
+    max-jobs-per-minute-per-tenant: 10
+    window-size-seconds: 60
+
+logging:
+  level:
+    com.jobprocessor: INFO
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId}] %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
